@@ -1,0 +1,1037 @@
+openapi: 3.1.0
+
+info:
+  title: Health Monitoring API
+  version: 1.0.0
+  summary: Contract-first API for a simple health monitoring system.
+  description: |
+    This OpenAPI Description defines a small health monitoring API used in a
+    university project to demonstrate a contract-first workflow.
+
+    The API manages patient profiles and stores two biometric signals:
+
+    - heart rate batches, sent as 60 seconds of data at 10 Hz
+    - body temperature, sent as one average value per minute
+
+    The contract is intentionally simple but complete enough to demonstrate
+    schemas, parameters, request bodies, responses, reusable components,
+    examples, security requirements, documentation, mocking, SDK generation,
+    backend implementation and contract testing.
+  contact:
+    name: Samuele Auteri
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Local FastAPI backend
+  - url: http://localhost:4010
+    description: Local Prism mock server
+
+tags:
+  - name: System
+    description: Health and operational endpoints.
+  - name: Patients
+    description: Operations for managing patient profiles.
+  - name: Metrics
+    description: Operations for ingesting and reading biometric metrics.
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /v1/health:
+    get:
+      tags:
+        - System
+      summary: Check API health
+      description: Public endpoint used to verify that the API is running.
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: The API is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheck'
+              examples:
+                healthy:
+                  $ref: '#/components/examples/HealthCheckExample'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/patients:
+    get:
+      tags:
+        - Patients
+      summary: List patients
+      description: Returns a paginated list of patient profiles.
+      operationId: listPatients
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Patient list returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientListResponse'
+              examples:
+                patientList:
+                  $ref: '#/components/examples/PatientListExample'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags:
+        - Patients
+      summary: Create patient
+      description: Creates a new patient profile.
+      operationId: createPatient
+      requestBody:
+        $ref: '#/components/requestBodies/CreatePatientRequest'
+      responses:
+        '201':
+          description: Patient created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+              examples:
+                patient:
+                  $ref: '#/components/examples/PatientExample'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/patients/{patient_id}:
+    get:
+      tags:
+        - Patients
+      summary: Get patient
+      description: Returns a patient profile by identifier.
+      operationId: getPatient
+      parameters:
+        - $ref: '#/components/parameters/PatientId'
+      responses:
+        '200':
+          description: Patient returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+              examples:
+                patient:
+                  $ref: '#/components/examples/PatientExample'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags:
+        - Patients
+      summary: Update patient
+      description: Replaces the editable fields of an existing patient profile.
+      operationId: updatePatient
+      parameters:
+        - $ref: '#/components/parameters/PatientId'
+      requestBody:
+        $ref: '#/components/requestBodies/UpdatePatientRequest'
+      responses:
+        '200':
+          description: Patient updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+              examples:
+                patient:
+                  $ref: '#/components/examples/PatientExample'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags:
+        - Patients
+      summary: Delete patient
+      description: Deletes a patient and the associated biometric metrics.
+      operationId: deletePatient
+      parameters:
+        - $ref: '#/components/parameters/PatientId'
+      responses:
+        '204':
+          description: Patient deleted successfully. The response body is empty.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/patients/{patient_id}/metrics/heart-rate:
+    post:
+      tags:
+        - Metrics
+      summary: Ingest heart rate batch
+      description: |
+        Stores a heart rate batch for one patient.
+
+        The batch represents exactly 60 seconds of heart rate data sampled at
+        10 Hz, therefore the request must contain exactly 600 values.
+
+        Individual sample timestamps are derived by the backend using:
+
+        `sample_timestamp = start_timestamp + index / 10 seconds`
+      operationId: ingestHeartRateBatch
+      parameters:
+        - $ref: '#/components/parameters/PatientId'
+      requestBody:
+        $ref: '#/components/requestBodies/HeartRateBatchRequest'
+      responses:
+        '201':
+          description: Heart rate batch accepted and stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HeartRateIngestionResponse'
+              examples:
+                accepted:
+                  $ref: '#/components/examples/HeartRateIngestionExample'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    get:
+      tags:
+        - Metrics
+      summary: Get heart rate history
+      description: Returns raw heart rate samples for one patient in the requested time range.
+      operationId: getHeartRateHistory
+      parameters:
+        - $ref: '#/components/parameters/PatientId'
+        - $ref: '#/components/parameters/StartTime'
+        - $ref: '#/components/parameters/EndTime'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Heart rate history returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HeartRateHistoryResponse'
+              examples:
+                history:
+                  $ref: '#/components/examples/HeartRateHistoryExample'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/patients/{patient_id}/metrics/temperature:
+    post:
+      tags:
+        - Metrics
+      summary: Ingest temperature minute
+      description: |
+        Stores one aggregated body temperature value for one patient.
+
+        The timestamp must be aligned to a minute boundary. In practice this
+        means seconds and sub-seconds should be zero.
+      operationId: ingestTemperatureMinute
+      parameters:
+        - $ref: '#/components/parameters/PatientId'
+      requestBody:
+        $ref: '#/components/requestBodies/TemperatureMinuteRequest'
+      responses:
+        '201':
+          description: Temperature value accepted and stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemperatureIngestionResponse'
+              examples:
+                accepted:
+                  $ref: '#/components/examples/TemperatureIngestionExample'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    get:
+      tags:
+        - Metrics
+      summary: Get temperature history
+      description: Returns one temperature value per minute for one patient.
+      operationId: getTemperatureHistory
+      parameters:
+        - $ref: '#/components/parameters/PatientId'
+        - $ref: '#/components/parameters/StartTime'
+        - $ref: '#/components/parameters/EndTime'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Temperature history returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemperatureHistoryResponse'
+              examples:
+                history:
+                  $ref: '#/components/examples/TemperatureHistoryExample'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        Simple API key used for the demo.
+
+        Example value: `demo-secret-key`.
+
+  parameters:
+    PatientId:
+      name: patient_id
+      in: path
+      required: true
+      description: Unique identifier of the patient.
+      schema:
+        type: string
+        format: uuid
+        pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      example: 550e8400-e29b-41d4-a716-446655440000
+
+    StartTime:
+      name: start_time
+      in: query
+      required: false
+      description: Inclusive start of the time range, expressed as UTC ISO 8601 date-time.
+      schema:
+        $ref: '#/components/schemas/UtcDateTime'
+      example: '2025-08-01T10:00:00Z'
+
+    EndTime:
+      name: end_time
+      in: query
+      required: false
+      description: Exclusive end of the time range, expressed as UTC ISO 8601 date-time.
+      schema:
+        $ref: '#/components/schemas/UtcDateTime'
+      example: '2025-08-01T11:00:00Z'
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of records returned.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 100
+      example: 100
+
+    Offset:
+      name: offset
+      in: query
+      required: false
+      description: Number of records skipped before returning results.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 100000
+        default: 0
+      example: 0
+
+  requestBodies:
+    CreatePatientRequest:
+      description: Patient data used to create a new patient.
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PatientCreate'
+          examples:
+            createPatient:
+              $ref: '#/components/examples/CreatePatientExample'
+
+    UpdatePatientRequest:
+      description: Patient data used to update an existing patient.
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PatientUpdate'
+          examples:
+            updatePatient:
+              $ref: '#/components/examples/UpdatePatientExample'
+
+    HeartRateBatchRequest:
+      description: Heart rate batch sampled at 10 Hz for exactly 60 seconds.
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HeartRateBatch'
+
+    TemperatureMinuteRequest:
+      description: One temperature average value for a single minute.
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/TemperatureMinute'
+          examples:
+            temperatureMinute:
+              $ref: '#/components/examples/TemperatureMinuteExample'
+
+  responses:
+    BadRequest:
+      description: The request is syntactically valid JSON but semantically invalid for this operation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            badRequest:
+              $ref: '#/components/examples/BadRequestExample'
+
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            unauthorized:
+              $ref: '#/components/examples/UnauthorizedExample'
+
+    NotFound:
+      description: The requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            notFound:
+              $ref: '#/components/examples/NotFoundExample'
+
+    Conflict:
+      description: The request conflicts with an existing resource.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            conflict:
+              $ref: '#/components/examples/ConflictExample'
+
+    ValidationError:
+      description: The request does not match the schema validation rules.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          examples:
+            validationError:
+              $ref: '#/components/examples/ValidationErrorExample'
+
+    InternalServerError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            internalError:
+              $ref: '#/components/examples/InternalServerErrorExample'
+
+  schemas:
+    HealthCheck:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - service
+        - version
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+          description: Operational status.
+        service:
+          type: string
+          description: Service name.
+        version:
+          type: string
+          description: API implementation version.
+
+    UtcDateTime:
+      type: string
+      format: date-time
+      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$'
+      description: UTC timestamp in ISO 8601 format.
+      examples:
+        - '2025-08-01T10:00:00Z'
+
+    MinuteUtcDateTime:
+      type: string
+      format: date-time
+      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00(?:\.0+)?(?:Z|[+-]00:00)$'
+      description: UTC timestamp aligned to a minute boundary.
+      examples:
+        - '2025-08-01T10:30:00Z'
+
+    ProfilePicture:
+      type: string
+      format: uri
+      pattern: '^https?://[^\s\u0000]+$'
+      maxLength: 2048
+      description: |
+        Optional URL of the patient profile picture.
+
+        The first version of the API intentionally supports only URLs.
+        This keeps the contract simple and avoids ambiguity between URL
+        strings and base64 strings.
+      examples:
+        - https://example.com/images/patient-1.png
+
+    PatientCreate:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - age
+        - weight
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          pattern: '^[^\u0000]+$'
+          description: Patient full name.
+          examples:
+            - Mario Rossi
+        age:
+          type: integer
+          minimum: 0
+          maximum: 120
+          description: Patient age in years.
+          examples:
+            - 45
+        weight:
+          type: number
+          format: float
+          exclusiveMinimum: 0
+          maximum: 400
+          description: Patient weight in kilograms.
+          examples:
+            - 78.5
+        profile_picture:
+          $ref: '#/components/schemas/ProfilePicture'
+
+    PatientUpdate:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - age
+        - weight
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          pattern: '^[^\u0000]+$'
+          description: Updated patient full name.
+          examples:
+            - Mario Rossi
+        age:
+          type: integer
+          minimum: 0
+          maximum: 120
+          description: Updated patient age in years.
+          examples:
+            - 45
+        weight:
+          type: number
+          format: float
+          exclusiveMinimum: 0
+          maximum: 400
+          description: Updated patient weight in kilograms.
+          examples:
+            - 78.5
+        profile_picture:
+          $ref: '#/components/schemas/ProfilePicture'
+
+    Patient:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - age
+        - weight
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Server-generated unique patient identifier.
+          examples:
+            - 550e8400-e29b-41d4-a716-446655440000
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          pattern: '^[^\u0000]+$'
+          description: Patient full name.
+          examples:
+            - Mario Rossi
+        age:
+          type: integer
+          minimum: 0
+          maximum: 120
+          description: Patient age in years.
+          examples:
+            - 45
+        weight:
+          type: number
+          format: float
+          exclusiveMinimum: 0
+          maximum: 400
+          description: Patient weight in kilograms.
+          examples:
+            - 78.5
+        profile_picture:
+          $ref: '#/components/schemas/ProfilePicture'
+        created_at:
+          $ref: '#/components/schemas/UtcDateTime'
+        updated_at:
+          $ref: '#/components/schemas/UtcDateTime'
+
+    PatientListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          description: Returned patients.
+          items:
+            $ref: '#/components/schemas/Patient'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    HeartRateBatch:
+      type: object
+      additionalProperties: false
+      required:
+        - start_timestamp
+        - samples
+      properties:
+        start_timestamp:
+          $ref: '#/components/schemas/UtcDateTime'
+        samples:
+          type: array
+          minItems: 600
+          maxItems: 600
+          description: Exactly 600 heart rate samples, representing 60 seconds at 10 Hz.
+          items:
+            type: number
+            format: float
+            minimum: 30
+            maximum: 220
+
+    TemperatureMinute:
+      type: object
+      additionalProperties: false
+      required:
+        - timestamp
+        - value
+      properties:
+        timestamp:
+          $ref: '#/components/schemas/MinuteUtcDateTime'
+        value:
+          type: number
+          format: float
+          minimum: 34
+          maximum: 42
+          description: Body temperature in Celsius.
+          examples:
+            - 36.7
+
+    MetricSample:
+      type: object
+      additionalProperties: false
+      required:
+        - timestamp
+        - value
+      properties:
+        timestamp:
+          $ref: '#/components/schemas/UtcDateTime'
+        value:
+          type: number
+          format: float
+          description: Metric value at the given timestamp.
+
+    HeartRateHistoryResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          description: Raw heart rate samples.
+          items:
+            $ref: '#/components/schemas/MetricSample'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    TemperatureHistoryResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          description: Temperature samples, one value per minute.
+          items:
+            $ref: '#/components/schemas/MetricSample'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    HeartRateIngestionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - patient_id
+        - start_timestamp
+        - samples_stored
+      properties:
+        patient_id:
+          type: string
+          format: uuid
+          description: Patient that owns the stored samples.
+        start_timestamp:
+          $ref: '#/components/schemas/UtcDateTime'
+        samples_stored:
+          type: integer
+          minimum: 600
+          maximum: 600
+          description: Number of stored heart rate samples.
+
+    TemperatureIngestionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - patient_id
+        - timestamp
+        - value
+      properties:
+        patient_id:
+          type: string
+          format: uuid
+          description: Patient that owns the stored temperature value.
+        timestamp:
+          $ref: '#/components/schemas/UtcDateTime'
+        value:
+          type: number
+          format: float
+          minimum: 34
+          maximum: 42
+          description: Stored temperature value in Celsius.
+
+    Pagination:
+      type: object
+      additionalProperties: false
+      required:
+        - total
+        - limit
+        - offset
+      properties:
+        total:
+          type: integer
+          minimum: 0
+          description: Total number of records matching the query.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: Maximum number of records returned.
+        offset:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          description: Number of skipped records.
+
+    Error:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code.
+          examples:
+            - PATIENT_NOT_FOUND
+        message:
+          type: string
+          description: Human-readable error message.
+          examples:
+            - Patient not found.
+
+    ValidationError:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - details
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code.
+          examples:
+            - VALIDATION_ERROR
+        message:
+          type: string
+          description: Human-readable validation error summary.
+          examples:
+            - Request body does not match the contract.
+        details:
+          type: array
+          description: Field-level validation errors.
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - field
+        - issue
+      properties:
+        field:
+          type: string
+          description: Field or parameter that caused the validation error.
+          examples:
+            - samples
+        issue:
+          type: string
+          description: Explanation of the validation problem.
+          examples:
+            - Array must contain exactly 600 values.
+
+  examples:
+    HealthCheckExample:
+      summary: Healthy API
+      value:
+        status: ok
+        service: health-monitoring-api
+        version: 1.0.0
+
+    CreatePatientExample:
+      summary: Create a patient
+      value:
+        name: Mario Rossi
+        age: 45
+        weight: 78.5
+        profile_picture: https://example.com/images/patient-1.png
+
+    UpdatePatientExample:
+      summary: Update a patient
+      value:
+        name: Mario Rossi
+        age: 46
+        weight: 79.2
+        profile_picture: https://example.com/images/patient-1.png
+
+    PatientExample:
+      summary: Stored patient
+      value:
+        id: 550e8400-e29b-41d4-a716-446655440000
+        name: Mario Rossi
+        age: 45
+        weight: 78.5
+        profile_picture: https://example.com/images/patient-1.png
+        created_at: '2025-08-01T09:00:00Z'
+        updated_at: '2025-08-01T09:00:00Z'
+
+    PatientListExample:
+      summary: Patient list
+      value:
+        data:
+          - id: 550e8400-e29b-41d4-a716-446655440000
+            name: Mario Rossi
+            age: 45
+            weight: 78.5
+            profile_picture: https://example.com/images/patient-1.png
+            created_at: '2025-08-01T09:00:00Z'
+            updated_at: '2025-08-01T09:00:00Z'
+        pagination:
+          total: 1
+          limit: 100
+          offset: 0
+
+    TemperatureMinuteExample:
+      summary: One temperature minute
+      value:
+        timestamp: '2025-08-01T10:30:00Z'
+        value: 36.7
+
+    HeartRateIngestionExample:
+      summary: Heart rate ingestion result
+      value:
+        patient_id: 550e8400-e29b-41d4-a716-446655440000
+        start_timestamp: '2025-08-01T10:00:00Z'
+        samples_stored: 600
+
+    TemperatureIngestionExample:
+      summary: Temperature ingestion result
+      value:
+        patient_id: 550e8400-e29b-41d4-a716-446655440000
+        timestamp: '2025-08-01T10:30:00Z'
+        value: 36.7
+
+    HeartRateHistoryExample:
+      summary: Heart rate history
+      value:
+        data:
+          - timestamp: '2025-08-01T10:00:00Z'
+            value: 72.0
+          - timestamp: '2025-08-01T10:00:01Z'
+            value: 73.0
+          - timestamp: '2025-08-01T10:00:02Z'
+            value: 72.5
+        pagination:
+          total: 3
+          limit: 100
+          offset: 0
+
+    TemperatureHistoryExample:
+      summary: Temperature history
+      value:
+        data:
+          - timestamp: '2025-08-01T10:30:00Z'
+            value: 36.7
+          - timestamp: '2025-08-01T10:31:00Z'
+            value: 36.8
+        pagination:
+          total: 2
+          limit: 100
+          offset: 0
+
+    BadRequestExample:
+      summary: Bad request
+      value:
+        code: BAD_REQUEST
+        message: Invalid time range.
+
+    UnauthorizedExample:
+      summary: Unauthorized
+      value:
+        code: UNAUTHORIZED
+        message: Missing or invalid API key.
+
+    NotFoundExample:
+      summary: Not found
+      value:
+        code: PATIENT_NOT_FOUND
+        message: Patient not found.
+
+    ConflictExample:
+      summary: Conflict
+      value:
+        code: DUPLICATE_METRIC
+        message: A metric for this patient and timestamp already exists.
+
+    ValidationErrorExample:
+      summary: Validation error
+      value:
+        code: VALIDATION_ERROR
+        message: Request body does not match the contract.
+        details:
+          - field: samples
+            issue: Array must contain exactly 600 values.
+
+    InternalServerErrorExample:
+      summary: Internal server error
+      value:
+        code: INTERNAL_SERVER_ERROR
+        message: Unexpected server error.

@@ -5,11 +5,21 @@ import type {
   Patient,
   PatientCreate,
 } from '@health-monitoring/api-client'
+import type { TooltipContentProps } from 'recharts'
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import { api, apiBaseUrl, getApiErrorMessage } from './api'
 import './App.css'
 
-const PATIENT_PAGE_SIZE = 20
-const METRIC_PAGE_SIZE = 20
+const PATIENT_PAGE_SIZE = 12
+const METRIC_PAGE_SIZE = 100
 const HR_SAMPLE_COUNT = 600
 
 type PatientForm = {
@@ -22,6 +32,18 @@ type PatientForm = {
 type Notice = {
   kind: 'success' | 'error'
   text: string
+}
+
+type PreviewState = {
+  status: 'loading' | 'ready' | 'error'
+  latestTemperature?: MetricSample
+  error?: string
+}
+
+type ChartPoint = {
+  timestamp: number
+  label: string
+  value: number
 }
 
 const emptyPatientForm: PatientForm = {
@@ -90,6 +112,16 @@ function formatMetricValue(value: number, unit: string): string {
   return `${value.toFixed(precision)} ${unit}`
 }
 
+function formatChartTick(timestamp: number): string {
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 function shortId(id: string): string {
   return id.slice(0, 8)
 }
@@ -122,6 +154,22 @@ function displayPatientName(patient: Patient): string {
   }
 
   return cleaned.length > 36 ? `${cleaned.slice(0, 33)}...` : cleaned
+}
+
+function PatientArtwork({
+  patient,
+  size = 'normal',
+}: {
+  patient: Patient
+  size?: 'normal' | 'large'
+}) {
+  const name = displayPatientName(patient)
+
+  return (
+    <span className={`avatar ${size}`}>
+      {patient.profilePicture ? <img src={patient.profilePicture} alt="" /> : name.slice(0, 1)}
+    </span>
+  )
 }
 
 function patientToForm(patient: Patient): PatientForm {
@@ -181,7 +229,112 @@ function generateHeartRateSamples(base: number): number[] {
   })
 }
 
-function MetricList({
+function toChartData(samples: MetricSample[], precision: number): ChartPoint[] {
+  return samples
+    .map((sample) => {
+      const timestamp = sample.timestamp.getTime()
+      if (Number.isNaN(timestamp)) {
+        return undefined
+      }
+
+      return {
+        timestamp,
+        label: formatDateTime(sample.timestamp),
+        value: Number(sample.value.toFixed(precision)),
+      }
+    })
+    .filter((point): point is ChartPoint => point !== undefined)
+}
+
+function ChartTooltip({
+  active,
+  label,
+  payload,
+  unit,
+}: TooltipContentProps & { unit: string }) {
+  const timestamp = typeof label === 'number' ? label : Number(label)
+
+  if (!active || !payload.length || !Number.isFinite(timestamp)) {
+    return null
+  }
+
+  const value = Number(payload[0]?.value)
+  if (!Number.isFinite(value)) {
+    return null
+  }
+
+  return (
+    <div className="chart-tooltip">
+      <strong>{formatMetricValue(value, unit)}</strong>
+      <span>{formatDateTime(new Date(timestamp))}</span>
+    </div>
+  )
+}
+
+function MetricChart({
+  color,
+  data,
+  emptyLabel,
+  label,
+  unit,
+}: {
+  color: string
+  data: ChartPoint[]
+  emptyLabel: string
+  label: string
+  unit: string
+}) {
+  return (
+    <section className="chart-panel">
+      <div className="section-title-row">
+        <div>
+          <p className="eyebrow">Timeseries</p>
+          <h3>{label}</h3>
+        </div>
+        <span>{data.length} points</span>
+      </div>
+
+      {data.length === 0 ? (
+        <div className="empty-state chart-empty">{emptyLabel}</div>
+      ) : (
+        <div className="chart-frame">
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={data} margin={{ top: 16, right: 18, bottom: 8, left: 2 }}>
+              <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
+              <XAxis
+                dataKey="timestamp"
+                domain={['dataMin', 'dataMax']}
+                minTickGap={24}
+                tickFormatter={formatChartTick}
+                tickLine={false}
+                type="number"
+              />
+              <YAxis
+                domain={['auto', 'auto']}
+                tickFormatter={(value) => `${value}`}
+                tickLine={false}
+                width={42}
+              />
+              <Tooltip content={(props) => <ChartTooltip {...props} unit={unit} />} />
+              <Line
+                activeDot={{ r: 5 }}
+                dataKey="value"
+                dot={data.length < 24}
+                isAnimationActive={false}
+                name={unit}
+                stroke={color}
+                strokeWidth={3}
+                type="monotone"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function MetricRows({
   emptyLabel,
   samples,
   unit,
@@ -195,8 +348,8 @@ function MetricList({
   }
 
   return (
-    <div className="metric-list">
-      {samples.map((sample) => (
+    <div className="metric-table">
+      {samples.slice(-8).map((sample) => (
         <div className="metric-row" key={`${sample.timestamp.toISOString()}-${sample.value}`}>
           <span>{formatDateTime(sample.timestamp)}</span>
           <strong>{formatMetricValue(sample.value, unit)}</strong>
@@ -209,12 +362,14 @@ function MetricList({
 function App() {
   const [health, setHealth] = useState('checking')
   const [patients, setPatients] = useState<Patient[]>([])
+  const [activePatient, setActivePatient] = useState<Patient | null>(null)
   const [patientForm, setPatientForm] = useState<PatientForm>(emptyPatientForm)
   const [patientPagination, setPatientPagination] = useState<Pagination>(
     emptyPatientPagination,
   )
   const [patientOffset, setPatientOffset] = useState(0)
-  const [selectedPatientId, setSelectedPatientId] = useState('')
+  const [expandedPreviews, setExpandedPreviews] = useState<Set<string>>(new Set())
+  const [previews, setPreviews] = useState<Record<string, PreviewState>>({})
   const [notice, setNotice] = useState<Notice | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
@@ -236,11 +391,7 @@ function App() {
   const [heartRateStart, setHeartRateStart] = useState(toLocalDateTimeInput())
   const [heartRateBase, setHeartRateBase] = useState('72')
 
-  const selectedPatient = useMemo(
-    () => patients.find((patient) => patient.id === selectedPatientId),
-    [patients, selectedPatientId],
-  )
-
+  const selectedPatientId = activePatient?.id ?? ''
   const patientHasPrevious = patientOffset > 0
   const patientHasNext =
     patientOffset + patientPagination.limit < patientPagination.total
@@ -252,12 +403,21 @@ function App() {
   const metricHasNext = metricOffset + historyLimit < metricTotal
   const isBusy = busy !== null
 
+  const temperatureChartData = useMemo(
+    () => toChartData(temperatureHistory, 1),
+    [temperatureHistory],
+  )
+  const heartRateChartData = useMemo(
+    () => toChartData(heartRateHistory, 0),
+    [heartRateHistory],
+  )
+
   useEffect(() => {
     void refreshHealth()
     void loadPatients(0).catch(async (error) => {
       setNotice({ kind: 'error', text: await getApiErrorMessage(error) })
     })
-    // The app should load its first page once when the dashboard mounts.
+    // The app should load its first registry page once when it mounts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -296,22 +456,26 @@ function App() {
       offset: nextOffset,
     })
 
-    const candidate = preferredId ?? selectedPatientId
-    const nextPatient = candidate
-      ? response.data.find((patient) => patient.id === candidate)
-      : undefined
-    const nextPatientId = nextPatient?.id ?? ''
-
     setPatients(response.data)
     setPatientPagination(response.pagination)
     setPatientOffset(nextOffset)
-    setSelectedPatientId(nextPatientId)
-    setPatientForm(nextPatient ? patientToForm(nextPatient) : emptyPatientForm)
 
-    if (nextPatientId) {
-      await loadMetricHistory(nextPatientId, 0)
-    } else {
-      clearMetricHistory()
+    if (preferredId) {
+      const preferredPatient = response.data.find((patient) => patient.id === preferredId)
+      if (preferredPatient) {
+        openPatient(preferredPatient)
+      }
+      return
+    }
+
+    if (activePatient) {
+      const refreshedPatient = response.data.find(
+        (patient) => patient.id === activePatient.id,
+      )
+      if (refreshedPatient) {
+        setActivePatient(refreshedPatient)
+        setPatientForm(patientToForm(refreshedPatient))
+      }
     }
   }
 
@@ -351,6 +515,43 @@ function App() {
     setMetricOffset(nextOffset)
   }
 
+  async function loadPatientPreview(patientId: string) {
+    setPreviews((current) => ({
+      ...current,
+      [patientId]: { status: 'loading', latestTemperature: current[patientId]?.latestTemperature },
+    }))
+
+    try {
+      const firstPage = await api.metrics.getTemperatureHistory({
+        patientId,
+        limit: 1,
+        offset: 0,
+      })
+      const total = firstPage.pagination.total
+      let latestTemperature = firstPage.data[0]
+
+      if (total > 1) {
+        const lastPage = await api.metrics.getTemperatureHistory({
+          patientId,
+          limit: 1,
+          offset: total - 1,
+        })
+        latestTemperature = lastPage.data[0]
+      }
+
+      setPreviews((current) => ({
+        ...current,
+        [patientId]: { status: 'ready', latestTemperature },
+      }))
+    } catch (error) {
+      const message = await getApiErrorMessage(error)
+      setPreviews((current) => ({
+        ...current,
+        [patientId]: { status: 'error', error: message },
+      }))
+    }
+  }
+
   function requireSelectedPatient(): string {
     if (!selectedPatientId) {
       throw new Error('Select a patient first.')
@@ -386,6 +587,7 @@ function App() {
       patientUpdate: buildPatientPayload(patientForm),
     })
 
+    setActivePatient(updated)
     await loadPatients(patientOffset, updated.id)
   }
 
@@ -396,7 +598,7 @@ function App() {
     const nextOffset =
       patients.length === 1 ? Math.max(0, patientOffset - PATIENT_PAGE_SIZE) : patientOffset
 
-    setSelectedPatientId('')
+    closePatient()
     await loadPatients(nextOffset)
   }
 
@@ -414,7 +616,10 @@ function App() {
       patientId,
       temperatureMinute: { timestamp, value },
     })
-    await loadMetricHistory(patientId, 0)
+    await Promise.all([
+      loadMetricHistory(patientId, 0),
+      expandedPreviews.has(patientId) ? loadPatientPreview(patientId) : Promise.resolve(),
+    ])
   }
 
   async function ingestHeartRate() {
@@ -432,17 +637,38 @@ function App() {
     await loadMetricHistory(patientId, 0)
   }
 
-  function selectPatient(patient: Patient) {
-    setSelectedPatientId(patient.id)
+  function openPatient(patient: Patient) {
+    setActivePatient(patient)
     setPatientForm(patientToForm(patient))
     setMetricOffset(0)
     void run('metrics', () => loadMetricHistory(patient.id, 0))
   }
 
-  function clearPatientForm() {
-    setSelectedPatientId('')
+  function closePatient() {
+    setActivePatient(null)
     setPatientForm(emptyPatientForm)
     clearMetricHistory()
+  }
+
+  function clearPatientForm() {
+    setPatientForm(emptyPatientForm)
+  }
+
+  function togglePreview(patientId: string) {
+    const willExpand = !expandedPreviews.has(patientId)
+    setExpandedPreviews((current) => {
+      const next = new Set(current)
+      if (next.has(patientId)) {
+        next.delete(patientId)
+      } else {
+        next.add(patientId)
+      }
+      return next
+    })
+
+    if (willExpand && previews[patientId]?.status !== 'ready') {
+      void loadPatientPreview(patientId)
+    }
   }
 
   return (
@@ -454,7 +680,7 @@ function App() {
         </div>
         <div className="topbar-meta">
           <span className="api-target">{apiBaseUrl}</span>
-          <button type="button" className="secondary-button" onClick={() => void refreshHealth()}>
+          <button type="button" className="status-pill" onClick={() => void refreshHealth()}>
             {health}
           </button>
         </div>
@@ -462,79 +688,50 @@ function App() {
 
       {notice && <div className={`notice ${notice.kind}`}>{notice.text}</div>}
 
-      <div className="workspace">
-        <section className="panel patients-panel" aria-labelledby="patients-title">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Patients</p>
-              <h2 id="patients-title">Registry</h2>
+      {activePatient ? (
+        <section className="patient-detail-page">
+          <div className="detail-hero">
+            <button type="button" className="back-button" onClick={closePatient}>
+              Back
+            </button>
+            <PatientArtwork patient={activePatient} size="large" />
+            <div className="detail-title">
+              <p className="eyebrow">Patient detail</p>
+              <h2>{displayPatientName(activePatient)}</h2>
+              <span>{activePatient.id}</span>
             </div>
-            <div className="pager">
-              <span>{paginationText(patientPagination)}</span>
-              <button
-                type="button"
-                onClick={() =>
-                  void run(
-                    'patients-page',
-                    () => loadPatients(Math.max(0, patientOffset - PATIENT_PAGE_SIZE)),
-                  )
-                }
-                disabled={!patientHasPrevious || isBusy}
-              >
-                Prev
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  void run(
-                    'patients-page',
-                    () => loadPatients(patientOffset + PATIENT_PAGE_SIZE),
-                  )
-                }
-                disabled={!patientHasNext || isBusy}
-              >
-                Next
-              </button>
+            <div className="vitals-strip">
+              <div>
+                <span>Age</span>
+                <strong>{activePatient.age}</strong>
+              </div>
+              <div>
+                <span>Weight</span>
+                <strong>{compactNumber(activePatient.weight)} kg</strong>
+              </div>
+              <div>
+                <span>Updated</span>
+                <strong>{formatDateTime(activePatient.updatedAt)}</strong>
+              </div>
             </div>
           </div>
 
-          <div className="patients-layout">
-            <div className="patient-list" role="list">
-              {patients.length === 0 ? (
-                <div className="empty-state">No patients yet</div>
-              ) : (
-                patients.map((patient) => (
-                  <button
-                    type="button"
-                    className={`patient-row ${
-                      patient.id === selectedPatientId ? 'selected' : ''
-                    }`}
-                    key={patient.id}
-                    onClick={() => selectPatient(patient)}
-                  >
-                    <span className="patient-identity">
-                      <strong title={patient.name}>{displayPatientName(patient)}</strong>
-                      <small>{patient.id}</small>
-                    </span>
-                    <span className="patient-stats">
-                      {patient.age} y
-                      <br />
-                      {compactNumber(patient.weight)} kg
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
+          <div className="detail-grid">
+            <section className="profile-panel">
+              <div className="section-title-row">
+                <div>
+                  <p className="eyebrow">Profile</p>
+                  <h3>Editable data</h3>
+                </div>
+              </div>
 
-            <form className="form-surface" onSubmit={(event) => event.preventDefault()}>
-              <div className="form-grid">
+              <form className="form-grid" onSubmit={(event) => event.preventDefault()}>
                 <label>
                   Name
                   <input
                     type="text"
                     value={patientForm.name}
                     onChange={(event) => updatePatientForm('name', event.target.value)}
-                    placeholder="Mario Rossi"
                     required
                   />
                 </label>
@@ -571,27 +768,17 @@ function App() {
                     placeholder="https://example.com/photo.jpg"
                   />
                 </label>
-              </div>
+              </form>
 
               <div className="button-row">
                 <button
                   type="button"
                   onClick={() =>
-                    void run('create-patient', createPatient, 'Patient created.')
+                    void run('update-patient', updatePatient, 'Patient updated.')
                   }
                   disabled={isBusy}
                 >
-                  Create
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() =>
-                    void run('update-patient', updatePatient, 'Patient updated.')
-                  }
-                  disabled={!selectedPatientId || isBusy}
-                >
-                  Update
+                  Save
                 </button>
                 <button
                   type="button"
@@ -599,208 +786,403 @@ function App() {
                   onClick={() =>
                     void run('delete-patient', deletePatient, 'Patient deleted.')
                   }
-                  disabled={!selectedPatientId || isBusy}
+                  disabled={isBusy}
                 >
                   Delete
                 </button>
+              </div>
+            </section>
+
+            <section className="capture-panel">
+              <div className="section-title-row">
+                <div>
+                  <p className="eyebrow">Capture</p>
+                  <h3>New samples</h3>
+                </div>
+              </div>
+
+              <div className="capture-grid">
+                <div className="capture-block">
+                  <h4>Temperature</h4>
+                  <label>
+                    Minute
+                    <input
+                      type="datetime-local"
+                      value={temperatureTime}
+                      onChange={(event) => setTemperatureTime(event.target.value)}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Celsius
+                    <input
+                      type="number"
+                      min="34"
+                      max="42"
+                      step="0.1"
+                      value={temperatureValue}
+                      onChange={(event) => setTemperatureValue(event.target.value)}
+                      required
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void run(
+                        'temperature',
+                        ingestTemperature,
+                        'Temperature sample stored.',
+                      )
+                    }
+                    disabled={isBusy}
+                  >
+                    Store temperature
+                  </button>
+                </div>
+
+                <div className="capture-block">
+                  <h4>Heart rate</h4>
+                  <label>
+                    Start
+                    <input
+                      type="datetime-local"
+                      value={heartRateStart}
+                      onChange={(event) => setHeartRateStart(event.target.value)}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Base bpm
+                    <input
+                      type="number"
+                      min="30"
+                      max="220"
+                      step="1"
+                      value={heartRateBase}
+                      onChange={(event) => setHeartRateBase(event.target.value)}
+                      required
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void run('heart-rate', ingestHeartRate, 'Heart rate batch stored.')
+                    }
+                    disabled={isBusy}
+                  >
+                    Store 600 samples
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <section className="timeline-panel">
+            <div className="section-title-row">
+              <div>
+                <p className="eyebrow">Signals</p>
+                <h3>Timeseries overview</h3>
+              </div>
+              <div className="pager">
+                <span>{paginationText(temperaturePagination)} temp</span>
+                <span>{paginationText(heartRatePagination)} HR</span>
                 <button
                   type="button"
-                  className="ghost-button"
-                  onClick={clearPatientForm}
+                  className="secondary-button"
+                  onClick={() =>
+                    void run(
+                      'metrics',
+                      () => loadMetricHistory(selectedPatientId, metricOffset),
+                      'History refreshed.',
+                    )
+                  }
                   disabled={isBusy}
                 >
-                  Clear
+                  Refresh
                 </button>
               </div>
-            </form>
-          </div>
-        </section>
-
-        <section className="panel metrics-panel" aria-labelledby="metrics-title">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Metrics</p>
-              <h2 id="metrics-title">Signals</h2>
             </div>
-            <div className="selected-strip">
-              <span>
-                {selectedPatient ? displayPatientName(selectedPatient) : 'No patient selected'}
-              </span>
-              <small>{selectedPatientId || 'Select a patient'}</small>
-            </div>
-          </div>
 
-          <div className="history-controls">
-            <label>
-              Start
-              <input
-                type="datetime-local"
-                value={historyStart}
-                onChange={(event) => setHistoryStart(event.target.value)}
-              />
-            </label>
-            <label>
-              End
-              <input
-                type="datetime-local"
-                value={historyEnd}
-                onChange={(event) => setHistoryEnd(event.target.value)}
-              />
-            </label>
-            <label>
-              Limit
-              <input
-                type="number"
-                min="1"
-                max="100"
-                step="1"
-                value={historyLimit}
-                onChange={(event) =>
-                  setHistoryLimit(Math.min(100, Math.max(1, Number(event.target.value))))
-                }
-              />
-            </label>
-            <div className="pager metric-pager">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() =>
-                  void run(
-                    'metrics',
-                    () => loadMetricHistory(selectedPatientId, metricOffset),
-                    'History refreshed.',
-                  )
-                }
-                disabled={!selectedPatientId || isBusy}
-              >
-                Refresh
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  void run(
-                    'metrics',
-                    () => loadMetricHistory(selectedPatientId, Math.max(0, metricOffset - historyLimit)),
-                  )
-                }
-                disabled={!metricHasPrevious || isBusy}
-              >
-                Prev
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  void run(
-                    'metrics',
-                    () => loadMetricHistory(selectedPatientId, metricOffset + historyLimit),
-                  )
-                }
-                disabled={!metricHasNext || isBusy}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-
-          <div className="metric-columns">
-            <section className="metric-section">
-              <div className="section-header">
-                <h3>Temperature</h3>
-                <span>{paginationText(temperaturePagination)}</span>
-              </div>
-
-              <div className="metric-form">
-                <label>
-                  Minute
-                  <input
-                    type="datetime-local"
-                    value={temperatureTime}
-                    onChange={(event) => setTemperatureTime(event.target.value)}
-                    required
-                  />
-                </label>
-                <label>
-                  Celsius
-                  <input
-                    type="number"
-                    min="34"
-                    max="42"
-                    step="0.1"
-                    value={temperatureValue}
-                    onChange={(event) => setTemperatureValue(event.target.value)}
-                    required
-                  />
-                </label>
+            <div className="history-controls">
+              <label>
+                Start
+                <input
+                  type="datetime-local"
+                  value={historyStart}
+                  onChange={(event) => setHistoryStart(event.target.value)}
+                />
+              </label>
+              <label>
+                End
+                <input
+                  type="datetime-local"
+                  value={historyEnd}
+                  onChange={(event) => setHistoryEnd(event.target.value)}
+                />
+              </label>
+              <label>
+                Points
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value={historyLimit}
+                  onChange={(event) =>
+                    setHistoryLimit(Math.min(100, Math.max(1, Number(event.target.value))))
+                  }
+                />
+              </label>
+              <div className="pager compact-pager">
                 <button
                   type="button"
                   onClick={() =>
                     void run(
-                      'temperature',
-                      ingestTemperature,
-                      'Temperature sample stored.',
+                      'metrics',
+                      () =>
+                        loadMetricHistory(
+                          selectedPatientId,
+                          Math.max(0, metricOffset - historyLimit),
+                        ),
                     )
                   }
-                  disabled={!selectedPatientId || isBusy}
+                  disabled={!metricHasPrevious || isBusy}
                 >
-                  Store
+                  Previous
                 </button>
-              </div>
-
-              <MetricList
-                emptyLabel="No temperature samples"
-                samples={temperatureHistory}
-                unit="C"
-              />
-            </section>
-
-            <section className="metric-section">
-              <div className="section-header">
-                <h3>Heart rate</h3>
-                <span>{paginationText(heartRatePagination)}</span>
-              </div>
-
-              <div className="metric-form">
-                <label>
-                  Start
-                  <input
-                    type="datetime-local"
-                    value={heartRateStart}
-                    onChange={(event) => setHeartRateStart(event.target.value)}
-                    required
-                  />
-                </label>
-                <label>
-                  Base bpm
-                  <input
-                    type="number"
-                    min="30"
-                    max="220"
-                    step="1"
-                    value={heartRateBase}
-                    onChange={(event) => setHeartRateBase(event.target.value)}
-                    required
-                  />
-                </label>
                 <button
                   type="button"
                   onClick={() =>
-                    void run('heart-rate', ingestHeartRate, 'Heart rate batch stored.')
+                    void run(
+                      'metrics',
+                      () => loadMetricHistory(selectedPatientId, metricOffset + historyLimit),
+                    )
                   }
-                  disabled={!selectedPatientId || isBusy}
+                  disabled={!metricHasNext || isBusy}
                 >
-                  Store 600
+                  Next
                 </button>
               </div>
+            </div>
 
-              <MetricList
+            <div className="charts-grid">
+              <MetricChart
+                color="#2563eb"
+                data={temperatureChartData}
+                emptyLabel="No temperature samples"
+                label="Temperature"
+                unit="C"
+              />
+              <MetricChart
+                color="#10b981"
+                data={heartRateChartData}
                 emptyLabel="No heart rate samples"
-                samples={heartRateHistory}
+                label="Heart rate"
                 unit="bpm"
               />
-            </section>
-          </div>
+            </div>
+
+            <div className="latest-grid">
+              <section>
+                <h4>Recent temperature samples</h4>
+                <MetricRows
+                  emptyLabel="No temperature samples"
+                  samples={temperatureHistory}
+                  unit="C"
+                />
+              </section>
+              <section>
+                <h4>Recent heart rate samples</h4>
+                <MetricRows
+                  emptyLabel="No heart rate samples"
+                  samples={heartRateHistory}
+                  unit="bpm"
+                />
+              </section>
+            </div>
+          </section>
         </section>
-      </div>
+      ) : (
+        <section className="home-grid">
+          <section className="registry-panel">
+            <div className="section-title-row registry-header">
+              <div>
+                <p className="eyebrow">Patients</p>
+                <h2>Registry</h2>
+              </div>
+              <div className="pager">
+                <span>{paginationText(patientPagination)}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void run(
+                      'patients-page',
+                      () => loadPatients(Math.max(0, patientOffset - PATIENT_PAGE_SIZE)),
+                    )
+                  }
+                  disabled={!patientHasPrevious || isBusy}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void run(
+                      'patients-page',
+                      () => loadPatients(patientOffset + PATIENT_PAGE_SIZE),
+                    )
+                  }
+                  disabled={!patientHasNext || isBusy}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+
+            <div className="patient-card-list">
+              {patients.length === 0 ? (
+                <div className="empty-state large">No patients yet</div>
+              ) : (
+                patients.map((patient) => {
+                  const preview = previews[patient.id]
+                  const isExpanded = expandedPreviews.has(patient.id)
+
+                  return (
+                    <article className="patient-card" key={patient.id}>
+                      <button
+                        type="button"
+                        className="patient-card-main"
+                        onClick={() => openPatient(patient)}
+                      >
+                        <PatientArtwork patient={patient} />
+                        <span className="patient-identity">
+                          <strong title={patient.name}>{displayPatientName(patient)}</strong>
+                          <small>{patient.id}</small>
+                        </span>
+                        <span className="patient-stats">
+                          {patient.age} y
+                          <br />
+                          {compactNumber(patient.weight)} kg
+                        </span>
+                      </button>
+
+                      <div className="patient-card-actions">
+                        <span>Updated {formatDateTime(patient.updatedAt)}</span>
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          onClick={() => togglePreview(patient.id)}
+                        >
+                          {isExpanded ? 'Hide preview' : 'Show preview'}
+                        </button>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="patient-preview">
+                          {preview?.status === 'loading' && <span>Loading preview...</span>}
+                          {preview?.status === 'error' && (
+                            <span className="preview-error">{preview.error}</span>
+                          )}
+                          {preview?.status === 'ready' && preview.latestTemperature && (
+                            <>
+                              <div>
+                                <span>Latest temperature</span>
+                                <strong>
+                                  {formatMetricValue(preview.latestTemperature.value, 'C')}
+                                </strong>
+                              </div>
+                              <div>
+                                <span>Measured at</span>
+                                <strong>{formatDateTime(preview.latestTemperature.timestamp)}</strong>
+                              </div>
+                            </>
+                          )}
+                          {preview?.status === 'ready' && !preview.latestTemperature && (
+                            <span>No temperature samples</span>
+                          )}
+                        </div>
+                      )}
+                    </article>
+                  )
+                })
+              )}
+            </div>
+          </section>
+
+          <aside className="create-panel">
+            <div className="section-title-row">
+              <div>
+                <p className="eyebrow">New patient</p>
+                <h2>Create profile</h2>
+              </div>
+            </div>
+
+            <form className="stacked-form" onSubmit={(event) => event.preventDefault()}>
+              <label>
+                Name
+                <input
+                  type="text"
+                  value={patientForm.name}
+                  onChange={(event) => updatePatientForm('name', event.target.value)}
+                  placeholder="Mario Rossi"
+                  required
+                />
+              </label>
+              <label>
+                Age
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={patientForm.age}
+                  onChange={(event) => updatePatientForm('age', event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Weight
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={patientForm.weight}
+                  onChange={(event) => updatePatientForm('weight', event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Profile URL
+                <input
+                  type="url"
+                  value={patientForm.profilePicture}
+                  onChange={(event) =>
+                    updatePatientForm('profilePicture', event.target.value)
+                  }
+                  placeholder="https://example.com/photo.jpg"
+                />
+              </label>
+            </form>
+
+            <div className="button-row">
+              <button
+                type="button"
+                onClick={() => void run('create-patient', createPatient, 'Patient created.')}
+                disabled={isBusy}
+              >
+                Create patient
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={clearPatientForm}
+                disabled={isBusy}
+              >
+                Clear
+              </button>
+            </div>
+          </aside>
+        </section>
+      )}
     </main>
   )
 }

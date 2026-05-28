@@ -593,7 +593,198 @@ button:disabled {
     text-align: left;
   }
 
-  .pager {
-    justify-content: flex-start;
+.pager {
+  justify-content: flex-start;
   }
+}
+
+.app-shell {
+  color: var(--text);
+}
+
+.topbar h1 {
+  color: #f8fafc;
+  text-shadow: 0 12px 34px rgba(56, 189, 248, 0.12);
+}
+
+.registry-panel,
+.create-panel,
+.profile-panel,
+.capture-panel,
+.timeline-panel,
+.detail-hero,
+.chart-panel {
+  backdrop-filter: blur(18px);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.registry-panel,
+.create-panel,
+.profile-panel,
+.capture-panel,
+.timeline-panel,
+.detail-hero {
+  box-shadow: var(--shadow);
+}
+
+.patient-card,
+.capture-block,
+.history-controls,
+.vitals-strip div,
+.chart-panel,
+.metric-table {
+  background: var(--surface-strong);
+  border-color: var(--border);
+}
+
+.patient-card-main {
+  color: var(--text);
+}
+
+.patient-card:hover {
+  border-color: rgba(56, 189, 248, 0.55);
+  box-shadow: 0 12px 30px rgba(8, 145, 178, 0.12);
+}
+
+.patient-card-main:hover:not(:disabled),
+.ghost-button:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.14);
+  color: #f8fafc;
+}
+
+.patient-card-actions,
+.patient-preview,
+.metric-row + .metric-row {
+  border-color: var(--border);
+}
+
+.patient-preview {
+  background: rgba(8, 13, 24, 0.62);
+}
+
+.avatar {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.22), rgba(16, 185, 129, 0.2));
+  border-color: rgba(125, 211, 252, 0.36);
+  color: #e0f2fe;
+  overflow: hidden;
+}
+
+.eyebrow,
+.patient-card-actions,
+.patient-stats,
+.patient-identity small,
+.detail-title span,
+.metric-row span,
+.chart-tooltip span,
+label,
+.vitals-strip span,
+.section-title-row > span,
+.pager span,
+.patient-preview span,
+.api-target {
+  color: var(--muted);
+}
+
+input {
+  background: rgba(2, 6, 23, 0.72);
+  border-color: rgba(148, 163, 184, 0.28);
+  color: var(--text);
+}
+
+input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
+}
+
+button {
+  background: linear-gradient(135deg, #2563eb, #0891b2);
+  border-color: rgba(125, 211, 252, 0.36);
+  box-shadow: 0 10px 26px rgba(37, 99, 235, 0.18);
+}
+
+button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1d4ed8, #0e7490);
+  border-color: rgba(125, 211, 252, 0.55);
+}
+
+.status-pill,
+.secondary-button {
+  background: rgba(15, 23, 42, 0.78);
+  border-color: var(--border);
+  color: var(--text);
+  box-shadow: none;
+}
+
+.status-pill:hover:not(:disabled),
+.secondary-button:hover:not(:disabled) {
+  background: rgba(30, 41, 59, 0.92);
+  border-color: rgba(56, 189, 248, 0.48);
+}
+
+.back-button {
+  background: rgba(15, 23, 42, 0.9);
+  border-color: rgba(148, 163, 184, 0.34);
+}
+
+.danger-button {
+  background: linear-gradient(135deg, #e11d48, #be123c);
+  border-color: rgba(251, 113, 133, 0.5);
+}
+
+.danger-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #be123c, #9f1239);
+  border-color: rgba(251, 113, 133, 0.72);
+}
+
+.ghost-button {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--muted);
+}
+
+.chart-frame {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.2), rgba(2, 6, 23, 0.24)),
+    rgba(2, 6, 23, 0.35);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.chart-tooltip {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.empty-state.compact,
+.chart-empty {
+  border-color: rgba(148, 163, 184, 0.26);
+}
+
+.history-summary {
+  align-self: stretch;
+  background: rgba(2, 6, 23, 0.5);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  justify-content: end;
+  min-height: 42px;
+  padding: 10px 12px;
+  text-align: right;
+}
+
+.history-summary span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.history-summary strong {
+  color: var(--text);
+  font-size: 14px;
 }

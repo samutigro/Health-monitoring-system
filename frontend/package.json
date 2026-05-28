@@ -11,9 +11,10 @@
   },
   "dependencies": {
     "@health-monitoring/api-client": "file:../generated/client/typescript-fetch",
+    "chart.js": "^4.5.1",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6",
-    "recharts": "^3.8.1"
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "^19.2.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -5,22 +5,27 @@ import type {
   Patient,
   PatientCreate,
 } from '@health-monitoring/api-client'
-import type { TooltipContentProps } from 'recharts'
 import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
+  Chart as ChartJS,
+  Decimation,
+  Filler,
+  Legend,
+  LineElement,
+  LinearScale,
+  PointElement,
   Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+  type ChartData,
+  type ChartOptions,
+} from 'chart.js'
+import { Line } from 'react-chartjs-2'
 import { api, apiBaseUrl, getApiErrorMessage } from './api'
 import './App.css'
 
 const PATIENT_PAGE_SIZE = 12
-const METRIC_PAGE_SIZE = 100
+const METRIC_PAGE_SIZE = 1000
 const HR_SAMPLE_COUNT = 600
+
+ChartJS.register(Decimation, Filler, Legend, LineElement, LinearScale, PointElement, Tooltip)
 
 type PatientForm = {
   name: string
@@ -41,9 +46,8 @@ type PreviewState = {
 }
 
 type ChartPoint = {
-  timestamp: number
-  label: string
-  value: number
+  x: number
+  y: number
 }
 
 const emptyPatientForm: PatientForm = {
@@ -238,37 +242,11 @@ function toChartData(samples: MetricSample[], precision: number): ChartPoint[] {
       }
 
       return {
-        timestamp,
-        label: formatDateTime(sample.timestamp),
-        value: Number(sample.value.toFixed(precision)),
+        x: timestamp,
+        y: Number(sample.value.toFixed(precision)),
       }
     })
     .filter((point): point is ChartPoint => point !== undefined)
-}
-
-function ChartTooltip({
-  active,
-  label,
-  payload,
-  unit,
-}: TooltipContentProps & { unit: string }) {
-  const timestamp = typeof label === 'number' ? label : Number(label)
-
-  if (!active || !payload.length || !Number.isFinite(timestamp)) {
-    return null
-  }
-
-  const value = Number(payload[0]?.value)
-  if (!Number.isFinite(value)) {
-    return null
-  }
-
-  return (
-    <div className="chart-tooltip">
-      <strong>{formatMetricValue(value, unit)}</strong>
-      <span>{formatDateTime(new Date(timestamp))}</span>
-    </div>
-  )
 }
 
 function MetricChart({
@@ -284,6 +262,80 @@ function MetricChart({
   label: string
   unit: string
 }) {
+  const chartData: ChartData<'line', ChartPoint[]> = {
+    datasets: [
+      {
+        backgroundColor: `${color}22`,
+        borderColor: color,
+        borderWidth: 2,
+        data,
+        fill: true,
+        label,
+        pointHitRadius: 12,
+        pointHoverRadius: 4,
+        pointRadius: 0,
+        tension: 0.25,
+      },
+    ],
+  }
+  const chartOptions: ChartOptions<'line'> = {
+    animation: false,
+    interaction: {
+      intersect: false,
+      mode: 'nearest',
+    },
+    maintainAspectRatio: false,
+    normalized: true,
+    parsing: false,
+    plugins: {
+      decimation: {
+        algorithm: 'lttb',
+        enabled: true,
+        samples: 700,
+      },
+      legend: {
+        display: false,
+      },
+      tooltip: {
+        backgroundColor: '#f8fafc',
+        borderColor: '#334155',
+        borderWidth: 1,
+        callbacks: {
+          label: (item) => formatMetricValue(Number(item.parsed.y), unit),
+          title: (items) => {
+            const timestamp = Number(items[0]?.parsed.x)
+            return Number.isFinite(timestamp) ? formatDateTime(new Date(timestamp)) : ''
+          },
+        },
+        displayColors: false,
+        titleColor: '#0f172a',
+        bodyColor: '#0f172a',
+      },
+    },
+    responsive: true,
+    scales: {
+      x: {
+        grid: {
+          color: 'rgba(148, 163, 184, 0.18)',
+        },
+        ticks: {
+          color: '#94a3b8',
+          maxTicksLimit: 8,
+          callback: (value) => formatChartTick(Number(value)),
+        },
+        type: 'linear',
+      },
+      y: {
+        grid: {
+          color: 'rgba(148, 163, 184, 0.14)',
+        },
+        ticks: {
+          color: '#94a3b8',
+        },
+      },
+    },
+  }
+
   return (
     <section className="chart-panel">
       <div className="section-title-row">
@@ -298,36 +350,7 @@ function MetricChart({
         <div className="empty-state chart-empty">{emptyLabel}</div>
       ) : (
         <div className="chart-frame">
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={data} margin={{ top: 16, right: 18, bottom: 8, left: 2 }}>
-              <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
-              <XAxis
-                dataKey="timestamp"
-                domain={['dataMin', 'dataMax']}
-                minTickGap={24}
-                tickFormatter={formatChartTick}
-                tickLine={false}
-                type="number"
-              />
-              <YAxis
-                domain={['auto', 'auto']}
-                tickFormatter={(value) => `${value}`}
-                tickLine={false}
-                width={42}
-              />
-              <Tooltip content={(props) => <ChartTooltip {...props} unit={unit} />} />
-              <Line
-                activeDot={{ r: 5 }}
-                dataKey="value"
-                dot={data.length < 24}
-                isAnimationActive={false}
-                name={unit}
-                stroke={color}
-                strokeWidth={3}
-                type="monotone"
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <Line data={chartData} options={chartOptions} />
         </div>
       )}
     </section>
@@ -375,8 +398,6 @@ function App() {
 
   const [historyStart, setHistoryStart] = useState('')
   const [historyEnd, setHistoryEnd] = useState('')
-  const [historyLimit, setHistoryLimit] = useState(METRIC_PAGE_SIZE)
-  const [metricOffset, setMetricOffset] = useState(0)
   const [temperatureHistory, setTemperatureHistory] = useState<MetricSample[]>([])
   const [heartRateHistory, setHeartRateHistory] = useState<MetricSample[]>([])
   const [temperaturePagination, setTemperaturePagination] = useState<Pagination>(
@@ -399,8 +420,6 @@ function App() {
     temperaturePagination.total,
     heartRatePagination.total,
   )
-  const metricHasPrevious = metricOffset > 0
-  const metricHasNext = metricOffset + historyLimit < metricTotal
   const isBusy = busy !== null
 
   const temperatureChartData = useMemo(
@@ -479,40 +498,63 @@ function App() {
     }
   }
 
-  async function loadMetricHistory(
-    patientId = selectedPatientId,
-    nextOffset = metricOffset,
-  ) {
+  async function loadMetricHistory(patientId = selectedPatientId) {
     if (!patientId) {
       return
     }
 
     const startTime = optionalLocalDateTime(historyStart)
     const endTime = optionalLocalDateTime(historyEnd)
-    const limit = Math.min(100, Math.max(1, historyLimit))
 
     const [temperatureResponse, heartRateResponse] = await Promise.all([
-      api.metrics.getTemperatureHistory({
-        patientId,
-        startTime,
-        endTime,
-        limit,
-        offset: nextOffset,
-      }),
-      api.metrics.getHeartRateHistory({
-        patientId,
-        startTime,
-        endTime,
-        limit,
-        offset: nextOffset,
-      }),
+      loadAllMetricPages((offset) =>
+        api.metrics.getTemperatureHistory({
+          patientId,
+          startTime,
+          endTime,
+          limit: METRIC_PAGE_SIZE,
+          offset,
+        }),
+      ),
+      loadAllMetricPages((offset) =>
+        api.metrics.getHeartRateHistory({
+          patientId,
+          startTime,
+          endTime,
+          limit: METRIC_PAGE_SIZE,
+          offset,
+        }),
+      ),
     ])
 
     setTemperatureHistory(temperatureResponse.data)
     setHeartRateHistory(heartRateResponse.data)
     setTemperaturePagination(temperatureResponse.pagination)
     setHeartRatePagination(heartRateResponse.pagination)
-    setMetricOffset(nextOffset)
+  }
+
+  async function loadAllMetricPages(
+    fetchPage: (offset: number) => Promise<{ data: MetricSample[]; pagination: Pagination }>,
+  ): Promise<{ data: MetricSample[]; pagination: Pagination }> {
+    const data: MetricSample[] = []
+    let offset = 0
+    let total: number | undefined
+
+    while (total === undefined || offset < total) {
+      const response = await fetchPage(offset)
+      data.push(...response.data)
+      total = response.pagination.total
+      offset += response.pagination.limit
+    }
+
+    return {
+      data,
+      pagination: {
+        total: total ?? 0,
+        limit: data.length || METRIC_PAGE_SIZE,
+        offset: 0,
+      },
+    }
   }
 
   async function loadPatientPreview(patientId: string) {
@@ -565,7 +607,6 @@ function App() {
     setHeartRateHistory([])
     setTemperaturePagination(emptyMetricPagination)
     setHeartRatePagination(emptyMetricPagination)
-    setMetricOffset(0)
   }
 
   function updatePatientForm(field: keyof PatientForm, value: string) {
@@ -617,7 +658,7 @@ function App() {
       temperatureMinute: { timestamp, value },
     })
     await Promise.all([
-      loadMetricHistory(patientId, 0),
+      loadMetricHistory(patientId),
       expandedPreviews.has(patientId) ? loadPatientPreview(patientId) : Promise.resolve(),
     ])
   }
@@ -634,14 +675,13 @@ function App() {
       patientId,
       heartRateBatch: { startTimestamp, samples },
     })
-    await loadMetricHistory(patientId, 0)
+    await loadMetricHistory(patientId)
   }
 
   function openPatient(patient: Patient) {
     setActivePatient(patient)
     setPatientForm(patientToForm(patient))
-    setMetricOffset(0)
-    void run('metrics', () => loadMetricHistory(patient.id, 0))
+    void run('metrics', () => loadMetricHistory(patient.id))
   }
 
   function closePatient() {
@@ -892,8 +932,8 @@ function App() {
                   onClick={() =>
                     void run(
                       'metrics',
-                      () => loadMetricHistory(selectedPatientId, metricOffset),
-                      'History refreshed.',
+                      () => loadMetricHistory(selectedPatientId),
+                      'Full timeseries refreshed.',
                     )
                   }
                   disabled={isBusy}
@@ -920,48 +960,9 @@ function App() {
                   onChange={(event) => setHistoryEnd(event.target.value)}
                 />
               </label>
-              <label>
-                Points
-                <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  step="1"
-                  value={historyLimit}
-                  onChange={(event) =>
-                    setHistoryLimit(Math.min(100, Math.max(1, Number(event.target.value))))
-                  }
-                />
-              </label>
-              <div className="pager compact-pager">
-                <button
-                  type="button"
-                  onClick={() =>
-                    void run(
-                      'metrics',
-                      () =>
-                        loadMetricHistory(
-                          selectedPatientId,
-                          Math.max(0, metricOffset - historyLimit),
-                        ),
-                    )
-                  }
-                  disabled={!metricHasPrevious || isBusy}
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void run(
-                      'metrics',
-                      () => loadMetricHistory(selectedPatientId, metricOffset + historyLimit),
-                    )
-                  }
-                  disabled={!metricHasNext || isBusy}
-                >
-                  Next
-                </button>
+              <div className="history-summary">
+                <span>Loaded complete range</span>
+                <strong>{metricTotal.toLocaleString('en-US')} samples</strong>
               </div>
             </div>
 
@@ -1057,7 +1058,7 @@ function App() {
                         <PatientArtwork patient={patient} />
                         <span className="patient-identity">
                           <strong title={patient.name}>{displayPatientName(patient)}</strong>
-                          <small>{patient.id}</small>
+                          
                         </span>
                         <span className="patient-stats">
                           {patient.age} y

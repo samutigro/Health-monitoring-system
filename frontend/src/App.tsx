@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
   MetricSample,
   Pagination,
@@ -17,6 +17,7 @@ import {
   type ChartData,
   type ChartOptions,
 } from 'chart.js'
+import zoomPlugin from 'chartjs-plugin-zoom'
 import { Line } from 'react-chartjs-2'
 import { api, apiBaseUrl, getApiErrorMessage } from './api'
 import './App.css'
@@ -25,7 +26,16 @@ const PATIENT_PAGE_SIZE = 12
 const METRIC_PAGE_SIZE = 1000
 const HR_SAMPLE_COUNT = 600
 
-ChartJS.register(Decimation, Filler, Legend, LineElement, LinearScale, PointElement, Tooltip)
+ChartJS.register(
+  Decimation,
+  Filler,
+  Legend,
+  LineElement,
+  LinearScale,
+  PointElement,
+  Tooltip,
+  zoomPlugin,
+)
 
 type PatientForm = {
   name: string
@@ -262,6 +272,12 @@ function MetricChart({
   label: string
   unit: string
 }) {
+  const chartRef = useRef<ChartJS<'line', ChartPoint[]> | null>(null)
+
+  function resetZoom() {
+    chartRef.current?.resetZoom()
+  }
+
   const chartData: ChartData<'line', ChartPoint[]> = {
     datasets: [
       {
@@ -311,6 +327,35 @@ function MetricChart({
         titleColor: '#0f172a',
         bodyColor: '#0f172a',
       },
+      zoom: {
+        limits: {
+          x: {
+            min: 'original',
+            max: 'original',
+          },
+        },
+        pan: {
+          enabled: true,
+          mode: 'x',
+          modifierKey: 'shift',
+        },
+        zoom: {
+          drag: {
+            backgroundColor: `${color}22`,
+            borderColor: color,
+            borderWidth: 1,
+            enabled: true,
+          },
+          mode: 'x',
+          pinch: {
+            enabled: true,
+          },
+          wheel: {
+            enabled: true,
+            speed: 0.08,
+          },
+        },
+      },
     },
     responsive: true,
     scales: {
@@ -343,14 +388,24 @@ function MetricChart({
           <p className="eyebrow">Timeseries</p>
           <h3>{label}</h3>
         </div>
-        <span>{data.length} points</span>
+        <div className="chart-actions">
+          <span>{data.length.toLocaleString('en-US')} points</span>
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            onClick={resetZoom}
+            disabled={data.length === 0}
+          >
+            Reset zoom
+          </button>
+        </div>
       </div>
 
       {data.length === 0 ? (
         <div className="empty-state chart-empty">{emptyLabel}</div>
       ) : (
-        <div className="chart-frame">
-          <Line data={chartData} options={chartOptions} />
+        <div className="chart-frame" onDoubleClick={resetZoom}>
+          <Line ref={chartRef} data={chartData} options={chartOptions} />
         </div>
       )}
     </section>

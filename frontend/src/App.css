@@ -96,10 +96,24 @@
 }
 
 .section-title-row > span,
+.chart-actions span,
 .pager span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.chart-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.compact-button {
+  min-height: 34px;
+  padding: 7px 10px;
 }
 
 .notice {
@@ -751,6 +765,7 @@ button:hover:not(:disabled) {
     rgba(2, 6, 23, 0.35);
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 8px;
+  cursor: crosshair;
   padding: 10px;
 }
 

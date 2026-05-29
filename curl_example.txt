@@ -1,0 +1,29 @@
+
+# health
+curl http://localhost:8000/v1/health
+
+
+
+# get patients
+curl -H "X-API-Key: demo-secret-key" \
+  "http://localhost:8000/v1/patients?limit=5&offset=0"
+
+
+
+# no api key
+curl "http://localhost:8000/v1/patients"
+
+
+
+# create patient
+curl -X POST http://localhost:8000/v1/patients \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: demo-secret-key" \
+  -d '{
+    "name": "Super Mario",
+    "age": 45,
+    "weight": 78.5,
+    "profile_picture": "http://localhost:8000/artifacts/patients/super-mario.png"
+  }'
+
+

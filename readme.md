@@ -49,3 +49,14 @@ http://localhost:5173
 ```bash
 curl http://localhost:8000/v1/health
 ```
+
+## Project Structure
+
+```text
+openapi/      OpenAPI contract used as the source of truth
+generated/    Code generated from the OpenAPI contract
+backend/      Real FastAPI backend implementation
+frontend/     React + Vite frontend using the generated TypeScript SDK
+docs/         Manual test commands and support material
+compose.yaml  Docker Compose setup for backend and PostgreSQL
+```
